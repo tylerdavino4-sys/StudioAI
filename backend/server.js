@@ -10,7 +10,7 @@ const PROVIDER = (process.env.STUDIOAI_PROVIDER || "ollama").toLowerCase();
 const MODEL = process.env.STUDIOAI_MODEL || (PROVIDER === "ollama" ? "qwen2.5-coder:3b" : "gpt-4.1-mini");
 const API_KEY = process.env.OPENAI_API_KEY;
 
-const INSTRUCTIONS = `You are StudioAI, a Roblox Studio game-building assistant.
+const INSTRUCTIONS = `You are StudioAI, a Roblox Studio game-building assistant. Work incrementally: create a coherent first playable stage for large requests, do not attempt to cram an entire commercial game into one response, and state the next useful stage in the message.
 Return only one valid JSON object: {"message":"short explanation","operations":[...]}.
 Do not use markdown or put text outside the JSON object.
 Allowed operations:
@@ -106,8 +106,12 @@ const server=http.createServer(async(req,res)=>{
     const prompt=String(body.prompt||"").trim();
     if(!prompt) return send(res,400,{error:"Please enter a prompt."});
     if(prompt.length>6000) return send(res,400,{error:"Prompt is too long (maximum 6000 characters)."});
-    const selection=Array.isArray(body.selection)?body.selection.slice(0,20).map(String):[];
-    const input="Return a valid JSON object only. User request: "+prompt+"\nSelected Studio objects (context only): "+(selection.join(", ")||"none");
+    const selection=Array.isArray(body.selection)?body.selection.slice(0,80).map(String):[];
+    const inventory=Array.isArray(body.inventory)?body.inventory.slice(0,250).map(x=>String(x).slice(0,180)):[];
+    const projectStage=String(body.stage||"").slice(0,80);
+    const projectGoal=String(body.projectGoal||"").slice(0,1000);
+    const context = "\nSelected Studio objects: "+(selection.join(", ")||"none") + "\nExisting project inventory (do not recreate these; reuse exact paths when possible): "+(inventory.join("\n")||"not provided") + "\nProject goal: "+(projectGoal||"not provided")+"\nBuild stage: "+(projectStage||"first playable stage");
+    const input="Return a valid JSON object only. User request: "+prompt+context+"\nIf this is a large project, make one coherent stage only, label the next recommended stage in message, and avoid duplicate names/objects. If inventory is supplied, treat it as authoritative context and do not rebuild existing items.";
     const output = PROVIDER === "openai" ? await askOpenAI(input) : await askOllama(input);
     let result; try{result=JSON.parse(output);}catch{return send(res,502,{error:"AI response was not valid JSON. Try asking in a simpler way."});}
     if(typeof result.message!=="string") result.message="Here is the proposed build.";
