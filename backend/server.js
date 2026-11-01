@@ -112,7 +112,7 @@ const server=http.createServer(async(req,res)=>{
     let result; try{result=JSON.parse(output);}catch{return send(res,502,{error:"AI response was not valid JSON. Try asking in a simpler way."});}
     if(typeof result.message!=="string") result.message="Here is the proposed build.";
     if(!Array.isArray(result.operations)) result.operations=[];
-    result.operations=result.operations.slice(0,100).filter(x=>x&&["create_part","create_script","create_folder"].includes(x.type));
+    result.operations=result.operations.slice(0,100).filter(x=>x&&["create_part","create_script","create_folder","create_light"].includes(x.type));
     return send(res,200,result);
   } catch(err){
     const msg = PROVIDER === "ollama" && /fetch failed|ECONNREFUSED/i.test(err.message)
