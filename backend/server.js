@@ -1,5 +1,10 @@
 // StudioAI backend: local Ollama mode (free, runs on this PC) or optional OpenAI mode.
 const http = require("node:http");
+const fs = require("node:fs");
+const path = require("node:path");
+const FEEDBACK_FILE = path.join(__dirname, "feedback.json");
+function readFeedback() { try { const data = JSON.parse(fs.readFileSync(FEEDBACK_FILE, "utf8")); return Array.isArray(data) ? data : []; } catch { return []; } }
+function saveFeedback(items) { fs.writeFileSync(FEEDBACK_FILE, JSON.stringify(items.slice(-2000), null, 2), "utf8"); }
 const PORT = Number(process.env.STUDIOAI_PORT || 3210);
 const PROVIDER = (process.env.STUDIOAI_PROVIDER || "ollama").toLowerCase();
 const MODEL = process.env.STUDIOAI_MODEL || (PROVIDER === "ollama" ? "qwen2.5-coder:3b" : "gpt-4.1-mini");
@@ -67,9 +72,25 @@ async function askOpenAI(input) {
 const server=http.createServer(async(req,res)=>{
   if(req.method==="OPTIONS") return send(res,204,{});
   if(req.method==="GET" && req.url==="/health") return send(res,200,{ok:true,service:"StudioAI",provider:PROVIDER,model:MODEL});
-  if(req.method!=="POST" || !["/chat","/repair"].includes(req.url)) return send(res,404,{error:"Not found"});
+  if(req.method==="GET" && req.url==="/feedback/summary") {
+    const items=readFeedback(); const counts={};
+    for(const item of items) counts[item.category]=(counts[item.category]||0)+1;
+    const popular=Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([category,count])=>({category,count}));
+    return send(res,200,{total:items.length,popular});
+  }
+  if(req.method!=="POST" || !["/chat","/repair","/feedback"].includes(req.url)) return send(res,404,{error:"Not found"});
   try {
     const body=await readBody(req);
+    if(req.url==="/feedback") {
+      const category=String(body.category||"General").trim().slice(0,40);
+      const message=String(body.message||"").trim().slice(0,1200);
+      if(message.length<5) return send(res,400,{error:"Please write at least 5 characters of feedback."});
+      const items=readFeedback();
+      items.push({category:category||"General",message,createdAt:new Date().toISOString()});
+      saveFeedback(items);
+      const count=items.filter(x=>x.category===category).length;
+      return send(res,200,{ok:true,message:"Feedback saved on this computer. Thanks for helping improve StudioAI!",category,count});
+    }
     if(req.url==="/repair") {
       const failures=Array.isArray(body.failures)?body.failures.slice(0,12):[];
       if(!failures.length) return send(res,400,{error:"No failed changes were provided."});
