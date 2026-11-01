@@ -38,7 +38,7 @@ const server=http.createServer(async(req,res)=>{
     if(!prompt) return send(res,400,{error:"Please enter a prompt."});
     if(prompt.length>6000) return send(res,400,{error:"Prompt is too long (maximum 6000 characters)."});
     const selection=Array.isArray(body.selection)?body.selection.slice(0,20).map(String):[];
-    const input="User request: "+prompt+"\nSelected Studio objects (context only): "+(selection.join(", ")||"none");
+    const input="Please respond with a valid JSON object only. User request: "+prompt+"\nSelected Studio objects (context only): "+(selection.join(", ")||"none");
     const response=await fetch("https://api.openai.com/v1/responses",{
       method:"POST",
       headers:{"Authorization":"Bearer "+API_KEY,"Content-Type":"application/json"},
