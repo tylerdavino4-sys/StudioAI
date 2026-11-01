@@ -99,6 +99,13 @@ local function apply(op)
         part.Anchored=p.Anchored~=false
         if p.CanCollide~=nil then part.CanCollide=p.CanCollide==true end
         if p.Transparency~=nil then part.Transparency=math.clamp(tonumber(p.Transparency) or 0,0,1) end
+        if p.Reflectance~=nil then part.Reflectance=math.clamp(tonumber(p.Reflectance) or 0,0,1) end
+        if p.CastShadow~=nil then part.CastShadow=p.CastShadow==true end
+        if type(p.Orientation)=="table" then part.Orientation=vector3(p.Orientation,Vector3.zero) end
+        if type(p.Shape)=="string" then
+            local shapes={Block=Enum.PartType.Block,Ball=Enum.PartType.Ball,Cylinder=Enum.PartType.Cylinder}
+            if shapes[p.Shape] then part.Shape=shapes[p.Shape] end
+        end
         if type(p.Color)=="table" then part.Color=Color3.fromRGB(math.clamp(tonumber(p.Color[1]) or 255,0,255),math.clamp(tonumber(p.Color[2]) or 255,0,255),math.clamp(tonumber(p.Color[3]) or 255,0,255)) end
         if type(p.Material)=="string" then local ok,mat=pcall(function() return Enum.Material[p.Material] end); if ok and mat then part.Material=mat end end
         part.Parent=parent
@@ -109,6 +116,17 @@ local function apply(op)
         assert(className=="Script" or className=="LocalScript" or className=="ModuleScript","Script class is not allowed")
         assert(type(op.source)=="string" and #op.source<=50000,"Script source is missing or too large")
         local obj=Instance.new(className); obj.Name=tostring(op.name or "StudioAIScript"):sub(1,80); obj.Source=op.source; obj.Parent=parent
+    elseif op.type=="create_light" then
+        local className=op.className or "PointLight"
+        assert(className=="PointLight" or className=="SpotLight" or className=="SurfaceLight","Light class is not allowed")
+        local light=Instance.new(className)
+        light.Name=tostring(op.name or "StudioAILight"):sub(1,80)
+        local p=op.properties or {}
+        if p.Brightness~=nil then light.Brightness=math.clamp(tonumber(p.Brightness) or 1,0,10) end
+        if p.Range~=nil and light:IsA("PointLight") or p.Range~=nil and light:IsA("SpotLight") then light.Range=math.clamp(tonumber(p.Range) or 8,0,60) end
+        if p.Angle~=nil and light:IsA("SpotLight") then light.Angle=math.clamp(tonumber(p.Angle) or 45,0,180) end
+        if type(p.Color)=="table" then light.Color=Color3.fromRGB(math.clamp(tonumber(p.Color[1]) or 255,0,255),math.clamp(tonumber(p.Color[2]) or 255,0,255),math.clamp(tonumber(p.Color[3]) or 255,0,255)) end
+        light.Parent=parent
     else error("Unknown operation type") end
 end
 local preview
