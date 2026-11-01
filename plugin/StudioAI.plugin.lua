@@ -46,17 +46,35 @@ local function vector3(value,fallback)
     if type(value)~="table" then return fallback end
     return Vector3.new(tonumber(value[1]) or fallback.X,tonumber(value[2]) or fallback.Y,tonumber(value[3]) or fallback.Z)
 end
-local function apply(op)
-    -- Accept common AI variations such as "workspace", "game.Workspace",
-    -- and "Workspace.Obby", while still restricting creation to approved services.
-    local requestedParent=tostring(op.parent or "Workspace")
-    requestedParent=requestedParent:gsub("^%s+",""):gsub("%s+$","")
-    local parentName=requestedParent:match("([^%.%/]+)") or "Workspace"
+local function resolveParent(requestedParent)
+    requestedParent=tostring(requestedParent or "Workspace")
+    requestedParent=requestedParent:gsub("^%s+",""):gsub("%s+$",""):gsub("/",".")
+    requestedParent=requestedParent:gsub("^game%.","")
+    local segments={}
+    for segment in requestedParent:gmatch("[^%.]+") do
+        if segment~="" then table.insert(segments,segment) end
+    end
+    local first=segments[1] or "Workspace"
     local parent
     for name,service in pairs(allowedParents) do
-        if string.lower(name)==string.lower(parentName) then parent=service; break end
+        if string.lower(name)==string.lower(first) then parent=service; break end
+    end
+    -- A short folder name is accepted only when it already exists directly in Workspace.
+    if not parent and #segments==1 then
+        parent=workspace:FindFirstChild(first)
+        assert(parent and parent:IsA("Folder"),"Parent is not allowed: "..requestedParent)
+        return parent
     end
     assert(parent,"Parent is not allowed: "..requestedParent)
+    for i=2,#segments do
+        local child=parent:FindFirstChild(segments[i])
+        assert(child and child:IsA("Folder"),"Folder path not found: "..table.concat(segments,".",1,i))
+        parent=child
+    end
+    return parent
+end
+local function apply(op)
+    local parent=resolveParent(op.parent)
     if op.type=="create_part" then
         local className=op.className or "Part"
         assert(allowedParts[className],"Part class is not allowed")
