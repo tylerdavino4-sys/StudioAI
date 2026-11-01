@@ -5,7 +5,7 @@ const API_KEY = process.env.OPENAI_API_KEY;
 const MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 
 const INSTRUCTIONS = `You are StudioAI, a Roblox Studio game-building assistant.
-Return only JSON: {"message":"short explanation","operations":[...]}.
+Return only a valid json object (JSON): {"message":"short explanation","operations":[...]}. The response must be valid json and must not include markdown or text outside the json object.
 Allowed operations:
 - create_part: {"type":"create_part","name":"Name","parent":"Workspace","className":"Part","properties":{"Size":[x,y,z],"Position":[x,y,z],"Anchored":true,"CanCollide":true,"Color":[r,g,b],"Material":"SmoothPlastic"}}
 - create_folder: {"type":"create_folder","name":"Name","parent":"Workspace"}
