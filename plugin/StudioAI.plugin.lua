@@ -129,18 +129,95 @@ local function apply(op)
         light.Parent=parent
     else error("Unknown operation type") end
 end
-local preview
-local function clearPreview() if preview then preview:Destroy(); preview=nil end end
+local previewPanel, previewWorld
+local function clearPreview()
+    if previewPanel then previewPanel:Destroy(); previewPanel=nil end
+    previewWorld=nil
+end
 local function showPreview(operations)
-    clearPreview(); pending=operations
-    preview=make("Frame",{Position=UDim2.new(0,10,1,-148),Size=UDim2.new(1,-20,0,38),BackgroundColor3=Color3.fromRGB(31,53,72),BorderSizePixel=0,ZIndex=5},main)
-    make("UICorner",{CornerRadius=UDim.new(0,8)},preview)
-    make("TextLabel",{Position=UDim2.fromOffset(8,0),Size=UDim2.new(1,-112,1,0),BackgroundTransparency=1,Text=tostring(#pending).." change(s) ready to review",TextColor3=colors.text,TextSize=11,Font=Enum.Font.GothamBold,TextXAlignment=Enum.TextXAlignment.Left,ZIndex=6},preview)
-    local applyButton=make("TextButton",{Position=UDim2.new(1,-98,0,4),Size=UDim2.fromOffset(90,30),BackgroundColor3=colors.green,BorderSizePixel=0,Text="Apply",TextColor3=Color3.new(1,1,1),TextSize=12,Font=Enum.Font.GothamBold,ZIndex=6},preview)
+    clearPreview()
+    pending=operations
+    local parts,scripts,folders,lights=0,0,0,0
+    local folderMap={Workspace=nil,ServerScriptService=nil,ReplicatedStorage=nil,StarterGui=nil,StarterPack=nil,Lighting=nil}
+    local warnings={}
+    for i,op in ipairs(operations) do
+        if op.type=="create_part" then
+            parts+=1
+            local s=op.properties and op.properties.Size
+            if type(s)=="table" and ((tonumber(s[1]) or 0)<=0 or (tonumber(s[2]) or 0)<=0 or (tonumber(s[3]) or 0)<=0) then
+                table.insert(warnings,"Part "..i.." has an invalid size")
+            end
+        elseif op.type=="create_script" then
+            scripts+=1
+            if type(op.source)~="string" or op.source=="" then table.insert(warnings,"Script "..i.." has no source") end
+        elseif op.type=="create_folder" then folders+=1
+        elseif op.type=="create_light" then lights+=1
+        else table.insert(warnings,"Operation "..i.." has an unsupported type") end
+    end
+    previewPanel=make("Frame",{Position=UDim2.fromOffset(8,68),Size=UDim2.new(1,-16,1,-158),BackgroundColor3=colors.panel,BorderSizePixel=0,ZIndex=20},main)
+    make("UICorner",{CornerRadius=UDim.new(0,10)},previewPanel)
+    make("TextLabel",{Position=UDim2.fromOffset(10,7),Size=UDim2.new(1,-20,0,24),BackgroundTransparency=1,Text="3D PREVIEW — CHECK BEFORE APPLYING",TextColor3=colors.text,TextSize=13,Font=Enum.Font.GothamBold,TextXAlignment=Enum.TextXAlignment.Left,ZIndex=21},previewPanel)
+    local viewport=make("ViewportFrame",{Position=UDim2.fromOffset(8,35),Size=UDim2.new(1,-16,1,-138),BackgroundColor3=Color3.fromRGB(10,15,24),BorderSizePixel=0,ZIndex=21},previewPanel)
+    make("UICorner",{CornerRadius=UDim.new(0,8)},viewport)
+    local camera=Instance.new("Camera")
+    camera.Parent=viewport
+    viewport.CurrentCamera=camera
+    previewWorld=Instance.new("WorldModel")
+    previewWorld.Parent=viewport
+    local root=Instance.new("Folder")
+    root.Name="Preview"
+    root.Parent=previewWorld
+    for name in pairs(allowedParents) do folderMap[name]=root end
+    local low,high=nil,nil
+    local function cleanPath(value) return tostring(value or "Workspace"):gsub("^%s+",""):gsub("%s+$",""):gsub("/","."):gsub("^game%.","") end
+    for _,op in ipairs(operations) do
+        local path=cleanPath(op.parent)
+        local parent=folderMap[path] or root
+        if op.type=="create_folder" then
+            local f=Instance.new("Folder")
+            f.Name=tostring(op.name or "Folder")
+            f.Parent=parent
+            folderMap[path.."."..f.Name]=f
+        elseif op.type=="create_part" then
+            local p=op.properties or {}
+            local className=allowedParts[op.className] and op.className or "Part"
+            local part=Instance.new(className)
+            part.Name=tostring(op.name or "PreviewPart")
+            part.Size=vector3(p.Size,Vector3.new(4,1,4))
+            part.Position=vector3(p.Position,Vector3.new(0,5,0))
+            if type(p.Orientation)=="table" then part.Orientation=vector3(p.Orientation,Vector3.zero) end
+            part.Anchored=true
+            part.CanCollide=false
+            if type(p.Color)=="table" then part.Color=Color3.fromRGB(math.clamp(tonumber(p.Color[1]) or 255,0,255),math.clamp(tonumber(p.Color[2]) or 255,0,255),math.clamp(tonumber(p.Color[3]) or 255,0,255)) end
+            if type(p.Material)=="string" then local ok,mat=pcall(function() return Enum.Material[p.Material] end); if ok and mat then part.Material=mat end end
+            if p.Transparency~=nil then part.Transparency=math.clamp(tonumber(p.Transparency) or 0,0,0.85) end
+            if type(p.Shape)=="string" then local shapes={Block=Enum.PartType.Block,Ball=Enum.PartType.Ball,Cylinder=Enum.PartType.Cylinder}; if shapes[p.Shape] then part.Shape=shapes[p.Shape] end end
+            part.Parent=parent
+            local pos,half=part.Position,part.Size/2
+            low=low and Vector3.new(math.min(low.X,pos.X-half.X),math.min(low.Y,pos.Y-half.Y),math.min(low.Z,pos.Z-half.Z)) or pos-half
+            high=high and Vector3.new(math.max(high.X,pos.X+half.X),math.max(high.Y,pos.Y+half.Y),math.max(high.Z,pos.Z+half.Z)) or pos+half
+        end
+    end
+    if low and high then
+        local center=(low+high)/2
+        local distance=math.max((high-low).Magnitude,24)*0.85
+        camera.CFrame=CFrame.lookAt(center+Vector3.new(distance,distance*0.65,distance),center)
+    else
+        camera.CFrame=CFrame.lookAt(Vector3.new(20,18,20),Vector3.zero)
+    end
+    local summary="Parts "..parts.."  •  Scripts "..scripts.."  •  Folders "..folders.."  •  Lights "..lights
+    make("TextLabel",{Position=UDim2.new(0,10,1,-98),Size=UDim2.new(1,-20,0,18),BackgroundTransparency=1,Text=summary,TextColor3=colors.muted,TextSize=10,Font=Enum.Font.Gotham,TextXAlignment=Enum.TextXAlignment.Left,ZIndex=21},previewPanel)
+    local note=#warnings==0 and "Plan check: no obvious basic errors. Gameplay scripts still need Play testing." or ("Warnings: "..table.concat(warnings,"; "))
+    make("TextLabel",{Position=UDim2.new(0,10,1,-80),Size=UDim2.new(1,-20,0,32),BackgroundTransparency=1,Text=note,TextColor3=#warnings==0 and colors.green or Color3.fromRGB(245,190,90),TextSize=10,Font=Enum.Font.Gotham,TextWrapped=true,TextXAlignment=Enum.TextXAlignment.Left,ZIndex=21},previewPanel)
+    local cancel=make("TextButton",{Position=UDim2.new(0,10,1,-40,0,0),Size=UDim2.new(0.38,-8,0,30),BackgroundColor3=colors.input,BorderSizePixel=0,Text="Cancel",TextColor3=colors.text,TextSize=12,Font=Enum.Font.GothamBold,ZIndex=22},previewPanel)
+    make("UICorner",{CornerRadius=UDim.new(0,6)},cancel)
+    cancel.MouseButton1Click:Connect(function() clearPreview(); pending={}; message("StudioAI","Preview cancelled. Your game was not changed.",colors.muted) end)
+    local applyButton=make("TextButton",{Position=UDim2.new(0.42,0,1,-40),Size=UDim2.new(0.58,-10,0,30),BackgroundColor3=colors.green,BorderSizePixel=0,Text="Apply build",TextColor3=Color3.new(1,1,1),TextSize=12,Font=Enum.Font.GothamBold,ZIndex=22},previewPanel)
     make("UICorner",{CornerRadius=UDim.new(0,6)},applyButton)
     applyButton.MouseButton1Click:Connect(function()
         applyButton.Active=false
-        applyButton.Text="Working..."
+        applyButton.Text="Applying..."
+        clearPreview()
         local done,failures=0,{}
         for i,op in ipairs(pending) do
             local ok,err=pcall(apply,op)
@@ -153,15 +230,9 @@ local function showPreview(operations)
             local requestOk,response=pcall(function()
                 return HttpService:RequestAsync({Url=BACKEND_URL.."/repair",Method="POST",Headers={["Content-Type"]="application/json"},Body=HttpService:JSONEncode({failures=failures})})
             end)
-            if not requestOk or not response.Success then
-                table.insert(failures,{error="Could not contact the AI repair service: "..tostring(requestOk and response.Body or response)})
-                break
-            end
+            if not requestOk or not response.Success then table.insert(failures,{error="Could not contact repair service: "..tostring(requestOk and response.Body or response)}); break end
             local decoded,data=pcall(function() return HttpService:JSONDecode(response.Body) end)
-            if not decoded or type(data)~="table" or type(data.operations)~="table" or #data.operations==0 then
-                table.insert(failures,{error="The AI could not produce a repair: "..tostring(decoded and data.message or data)})
-                break
-            end
+            if not decoded or type(data)~="table" or type(data.operations)~="table" or #data.operations==0 then table.insert(failures,{error="AI could not produce a repair"}); break end
             local nextFailures={}
             for j,op in ipairs(data.operations) do
                 local ok,err=pcall(apply,op)
@@ -169,15 +240,14 @@ local function showPreview(operations)
             end
             failures=nextFailures
         end
-        clearPreview(); pending={}
+        pending={}
         if #failures==0 then
-            message("StudioAI","Applied "..done.." change(s)."..(repairRounds>0 and " I automatically repaired the build errors." or "").." Check Explorer and the 3D view.",colors.green)
+            message("StudioAI","Applied "..done.." change(s). Plan checks are not a live gameplay test. Press Play in Studio to test scripts.",colors.green)
         else
             local details={}
             for _,failure in ipairs(failures) do table.insert(details,tostring(failure.error or "Repair failed")) end
             message("StudioAI","Applied "..done.." change(s), but "..#failures.." error(s) remain after "..repairRounds.." repair attempt(s):\n"..table.concat(details,"\n"),colors.red)
         end
-        applyButton.Text="Apply"
     end)
 end
 local busy=false
