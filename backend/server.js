@@ -59,9 +59,19 @@ async function askOpenAI(input) {
 const server=http.createServer(async(req,res)=>{
   if(req.method==="OPTIONS") return send(res,204,{});
   if(req.method==="GET" && req.url==="/health") return send(res,200,{ok:true,service:"StudioAI",provider:PROVIDER,model:MODEL});
-  if(req.method!=="POST" || req.url!=="/chat") return send(res,404,{error:"Not found"});
+  if(req.method!=="POST" || !["/chat","/repair"].includes(req.url)) return send(res,404,{error:"Not found"});
   try {
     const body=await readBody(req);
+    if(req.url==="/repair") {
+      const failures=Array.isArray(body.failures)?body.failures.slice(0,12):[];
+      if(!failures.length) return send(res,400,{error:"No failed changes were provided."});
+      const repairPrompt = "Fix these failed Roblox Studio creation operations. Return ONLY JSON with message and operations. Keep the same intended result. Only use create_part, create_folder, create_script. Valid root parents are Workspace, ServerScriptService, ReplicatedStorage, StarterGui, StarterPack, Lighting. Use full folder paths rooted at those services. Do not use unsupported classes or properties. Do not create exploit or credential theft code. Failed operations and exact errors: " + JSON.stringify(failures);
+      const output = PROVIDER === "openai" ? await askOpenAI(repairPrompt) : await askOllama(repairPrompt);
+      let repaired; try { repaired=JSON.parse(output); } catch { return send(res,502,{error:"Repair response was not valid JSON."}); }
+      if(!Array.isArray(repaired.operations)) repaired.operations=[];
+      repaired.operations=repaired.operations.slice(0,12).filter(x=>x&&["create_part","create_script","create_folder"].includes(x.type));
+      return send(res,200,{message:typeof repaired.message==="string"?repaired.message:"I corrected the failed changes.",operations:repaired.operations});
+    }
     const prompt=String(body.prompt||"").trim();
     if(!prompt) return send(res,400,{error:"Please enter a prompt."});
     if(prompt.length>6000) return send(res,400,{error:"Prompt is too long (maximum 6000 characters)."});
