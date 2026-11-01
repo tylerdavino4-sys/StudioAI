@@ -108,10 +108,45 @@ local function showPreview(operations)
     local applyButton=make("TextButton",{Position=UDim2.new(1,-98,0,4),Size=UDim2.fromOffset(90,30),BackgroundColor3=colors.green,BorderSizePixel=0,Text="Apply",TextColor3=Color3.new(1,1,1),TextSize=12,Font=Enum.Font.GothamBold,ZIndex=6},preview)
     make("UICorner",{CornerRadius=UDim.new(0,6)},applyButton)
     applyButton.MouseButton1Click:Connect(function()
-        local done,errors=0,{}
-        for i,op in ipairs(pending) do local ok,err=pcall(apply,op); if ok then done+=1 else table.insert(errors,"Change "..i..": "..tostring(err)) end end
+        applyButton.Active=false
+        applyButton.Text="Working..."
+        local done,failures=0,{}
+        for i,op in ipairs(pending) do
+            local ok,err=pcall(apply,op)
+            if ok then done+=1 else table.insert(failures,{index=i,operation=op,error=tostring(err)}) end
+        end
+        local repairRounds=0
+        while #failures>0 and repairRounds<2 do
+            repairRounds+=1
+            message("StudioAI","I found "..#failures.." build error(s). Trying automatic repair ("..repairRounds.."/2)...",colors.blue)
+            local requestOk,response=pcall(function()
+                return HttpService:RequestAsync({Url=BACKEND_URL.."/repair",Method="POST",Headers={["Content-Type"]="application/json"},Body=HttpService:JSONEncode({failures=failures})})
+            end)
+            if not requestOk or not response.Success then
+                table.insert(failures,{error="Could not contact the AI repair service: "..tostring(requestOk and response.Body or response)})
+                break
+            end
+            local decoded,data=pcall(function() return HttpService:JSONDecode(response.Body) end)
+            if not decoded or type(data)~="table" or type(data.operations)~="table" or #data.operations==0 then
+                table.insert(failures,{error="The AI could not produce a repair: "..tostring(decoded and data.message or data)})
+                break
+            end
+            local nextFailures={}
+            for j,op in ipairs(data.operations) do
+                local ok,err=pcall(apply,op)
+                if ok then done+=1 else table.insert(nextFailures,{index=j,operation=op,error=tostring(err)}) end
+            end
+            failures=nextFailures
+        end
         clearPreview(); pending={}
-        if #errors==0 then message("StudioAI","Applied "..done.." change(s). Check Explorer and the 3D view.",colors.green) else message("StudioAI","Applied "..done.." change(s). Errors:\n"..table.concat(errors,"\n"),colors.red) end
+        if #failures==0 then
+            message("StudioAI","Applied "..done.." change(s)."..(repairRounds>0 and " I automatically repaired the build errors." or "").." Check Explorer and the 3D view.",colors.green)
+        else
+            local details={}
+            for _,failure in ipairs(failures) do table.insert(details,tostring(failure.error or "Repair failed")) end
+            message("StudioAI","Applied "..done.." change(s), but "..#failures.." error(s) remain after "..repairRounds.." repair attempt(s):\n"..table.concat(details,"\n"),colors.red)
+        end
+        applyButton.Text="Apply"
     end)
 end
 local busy=false
