@@ -47,8 +47,16 @@ local function vector3(value,fallback)
     return Vector3.new(tonumber(value[1]) or fallback.X,tonumber(value[2]) or fallback.Y,tonumber(value[3]) or fallback.Z)
 end
 local function apply(op)
-    local parent=allowedParents[op.parent or "Workspace"]
-    assert(parent,"Parent is not allowed")
+    -- Accept common AI variations such as "workspace", "game.Workspace",
+    -- and "Workspace.Obby", while still restricting creation to approved services.
+    local requestedParent=tostring(op.parent or "Workspace")
+    requestedParent=requestedParent:gsub("^%s+",""):gsub("%s+$","")
+    local parentName=requestedParent:match("([^%.%/]+)") or "Workspace"
+    local parent
+    for name,service in pairs(allowedParents) do
+        if string.lower(name)==string.lower(parentName) then parent=service; break end
+    end
+    assert(parent,"Parent is not allowed: "..requestedParent)
     if op.type=="create_part" then
         local className=op.className or "Part"
         assert(allowedParts[className],"Part class is not allowed")
