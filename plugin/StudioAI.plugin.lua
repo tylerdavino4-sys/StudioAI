@@ -59,11 +59,22 @@ local function resolveParent(requestedParent)
     for name,service in pairs(allowedParents) do
         if string.lower(name)==string.lower(first) then parent=service; break end
     end
-    -- A short folder name is accepted only when it already exists directly in Workspace.
+    -- If the AI gives only a folder name (for example "Platforms"),
+    -- search inside approved services so nested folders can be found too.
     if not parent and #segments==1 then
-        parent=workspace:FindFirstChild(first)
-        assert(parent and parent:IsA("Folder"),"Parent is not allowed: "..requestedParent)
-        return parent
+        local matches={}
+        for _,service in pairs(allowedParents) do
+            for _,descendant in ipairs(service:GetDescendants()) do
+                if descendant:IsA("Folder") and string.lower(descendant.Name)==string.lower(first) then
+                    table.insert(matches,descendant)
+                end
+            end
+        end
+        if #matches==1 then return matches[1] end
+        if #matches>1 then
+            error("Folder name is ambiguous: "..requestedParent..". Use its full path, such as Workspace.CyberpunkLobby.Platforms")
+        end
+        error("Folder not found in an approved location: "..requestedParent..". Create the folder first or use its full path.")
     end
     assert(parent,"Parent is not allowed: "..requestedParent)
     for i=2,#segments do
