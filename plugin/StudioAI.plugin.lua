@@ -254,9 +254,24 @@ local function ask()
     if prompt=="" then return end
     busy=true; promptBox.Text=""; message(feedbackMode and "Feedback" or "You",prompt,colors.blue); status.Text=feedbackMode and "Backend: saving feedback..." or "Backend: contacting local AI server..."; sendButton.Text="..."; sendButton.Active=false
     local names={}; for _,item in ipairs(Selection:Get()) do table.insert(names,item:GetFullName()) end
+    -- Send a small, read-only project snapshot so the AI can avoid rebuilding existing objects.
+    local inventory={}
+    if not feedbackMode then
+        local roots={workspace,game:GetService("ServerScriptService"),game:GetService("ReplicatedStorage"),game:GetService("StarterGui"),game:GetService("StarterPack"),game:GetService("Lighting")}
+        for _,root in ipairs(roots) do
+            table.insert(inventory,root.Name.." ["..root.ClassName.."]")
+            for _,item in ipairs(root:GetDescendants()) do
+                if #inventory>=250 then break end
+                if item:IsA("Folder") or item:IsA("Model") or item:IsA("BasePart") or item:IsA("Script") or item:IsA("LocalScript") or item:IsA("ModuleScript") or item:IsA("RemoteEvent") or item:IsA("RemoteFunction") then
+                    table.insert(inventory,item:GetFullName().." ["..item.ClassName.."]")
+                end
+            end
+            if #inventory>=250 then break end
+        end
+    end
     local ok,response=pcall(function()
         local endpoint=feedbackMode and "/feedback" or "/chat"
-        local payload=feedbackMode and {category="General",message=prompt} or {prompt=prompt,selection=names}
+        local payload=feedbackMode and {category="General",message=prompt} or {prompt=prompt,selection=names,inventory=inventory}
         return HttpService:RequestAsync({Url=BACKEND_URL..endpoint,Method="POST",Headers={["Content-Type"]="application/json"},Body=HttpService:JSONEncode(payload)})
     end)
     if not ok then message("StudioAI","Could not reach local backend. Start START_STUDIOAI_FREE.bat. "..tostring(response),colors.red); status.Text="Backend: offline"
