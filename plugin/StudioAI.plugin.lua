@@ -38,6 +38,8 @@ make("UICorner",{CornerRadius=UDim.new(0,8)},promptBox)
 make("UIPadding",{PaddingTop=UDim.new(0,8),PaddingBottom=UDim.new(0,8),PaddingLeft=UDim.new(0,8),PaddingRight=UDim.new(0,8)},promptBox)
 local sendButton=make("TextButton",{Position=UDim2.new(1,-82,1,-78),Size=UDim2.fromOffset(72,68),BackgroundColor3=colors.blue,BorderSizePixel=0,Text="Ask AI",TextColor3=Color3.new(1,1,1),TextSize=13,Font=Enum.Font.GothamBold},main)
 make("UICorner",{CornerRadius=UDim.new(0,8)},sendButton)
+local feedbackButton=make("TextButton",{Position=UDim2.new(1,-92,0,12),Size=UDim2.fromOffset(80,26),BackgroundColor3=colors.input,BorderSizePixel=0,Text="Feedback",TextColor3=colors.text,TextSize=11,Font=Enum.Font.GothamBold},main)
+make("UICorner",{CornerRadius=UDim.new(0,6)},feedbackButton)
 
 local allowedParents={Workspace=workspace,ServerScriptService=game:GetService("ServerScriptService"),ReplicatedStorage=game:GetService("ReplicatedStorage"),StarterGui=game:GetService("StarterGui"),StarterPack=game:GetService("StarterPack"),Lighting=game:GetService("Lighting")}
 local allowedParts={Part=true,SpawnLocation=true,WedgePart=true,CornerWedgePart=true}
@@ -161,21 +163,35 @@ local function showPreview(operations)
     end)
 end
 local busy=false
+local feedbackMode=false
+feedbackButton.MouseButton1Click:Connect(function()
+    feedbackMode=not feedbackMode
+    promptBox.PlaceholderText=feedbackMode and "Tell us what StudioAI should improve..." or "Example: Build a small obby..."
+    sendButton.Text=feedbackMode and "Send" or "Ask AI"
+    feedbackButton.Text=feedbackMode and "Chat mode" or "Feedback"
+    status.Text=feedbackMode and "Feedback mode: describe a problem or idea" or "Chat mode"
+end)
 local function ask()
     if busy then return end
     local prompt=promptBox.Text:gsub("^%s+",""):gsub("%s+$","")
     if prompt=="" then return end
-    busy=true; promptBox.Text=""; message("You",prompt,colors.blue); status.Text="Backend: contacting local AI server..."; sendButton.Text="..."; sendButton.Active=false
+    busy=true; promptBox.Text=""; message(feedbackMode and "Feedback" or "You",prompt,colors.blue); status.Text=feedbackMode and "Backend: saving feedback..." or "Backend: contacting local AI server..."; sendButton.Text="..."; sendButton.Active=false
     local names={}; for _,item in ipairs(Selection:Get()) do table.insert(names,item:GetFullName()) end
     local ok,response=pcall(function()
-        return HttpService:RequestAsync({Url=BACKEND_URL.."/chat",Method="POST",Headers={["Content-Type"]="application/json"},Body=HttpService:JSONEncode({prompt=prompt,selection=names})})
+        local endpoint=feedbackMode and "/feedback" or "/chat"
+        local payload=feedbackMode and {category="General",message=prompt} or {prompt=prompt,selection=names}
+        return HttpService:RequestAsync({Url=BACKEND_URL..endpoint,Method="POST",Headers={["Content-Type"]="application/json"},Body=HttpService:JSONEncode(payload)})
     end)
-    if not ok then message("StudioAI","Could not reach local backend. Start START_STUDIOAI.bat. "..tostring(response),colors.red); status.Text="Backend: offline"
+    if not ok then message("StudioAI","Could not reach local backend. Start START_STUDIOAI_FREE.bat. "..tostring(response),colors.red); status.Text="Backend: offline"
     elseif not response.Success then message("StudioAI","Backend error: "..tostring(response.Body),colors.red); status.Text="Backend: error"
     else
         local decoded,data=pcall(function() return HttpService:JSONDecode(response.Body) end)
         if not decoded or type(data)~="table" then message("StudioAI","Unreadable backend response.",colors.red)
         else
+            if feedbackMode then
+                message("StudioAI",data.message or "Thanks for the feedback!",colors.green)
+                status.Text="Feedback saved on this computer"
+            else
             message("StudioAI",data.message or "Here is the plan.",colors.text)
             if type(data.operations)=="table" and #data.operations>0 then
                 local lines={}; for i,op in ipairs(data.operations) do table.insert(lines,i..". "..tostring(op.type).." — "..tostring(op.name or "unnamed")) end
@@ -183,9 +199,10 @@ local function ask()
                 showPreview(data.operations)
             else message("StudioAI","No Studio changes were needed for that reply.",colors.muted) end
             status.Text="Backend: connected"
+            end
         end
     end
-    busy=false; sendButton.Text="Ask AI"; sendButton.Active=true
+    busy=false; sendButton.Text=feedbackMode and "Send" or "Ask AI"; sendButton.Active=true
 end
 sendButton.MouseButton1Click:Connect(ask)
 promptBox.FocusLost:Connect(function(enterPressed) if enterPressed then ask() end end)
