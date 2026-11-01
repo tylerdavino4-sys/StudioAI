@@ -61,24 +61,13 @@ local function resolveParent(requestedParent)
     for name,service in pairs(allowedParents) do
         if string.lower(name)==string.lower(first) then parent=service; break end
     end
-    -- If the AI gives only a folder name (for example "Platforms"),
-    -- search inside approved services so nested folders can be found too.
-    if not parent and #segments==1 then
-        local matches={}
-        for _,service in pairs(allowedParents) do
-            for _,descendant in ipairs(service:GetDescendants()) do
-                if descendant:IsA("Folder") and string.lower(descendant.Name)==string.lower(first) then
-                    table.insert(matches,descendant)
-                end
-            end
-        end
-        if #matches==1 then return matches[1] end
-        if #matches>1 then
-            error("Folder name is ambiguous: "..requestedParent..". Use its full path, such as Workspace.CyberpunkLobby.Platforms")
-        end
-        error("Folder not found in an approved location: "..requestedParent..". Create the folder first or use its full path.")
+    -- AI models sometimes omit the root service and return "Buildings"
+    -- or "Buildings.Structures". Treat these as Workspace-relative paths
+    -- instead of searching every service (which can find old duplicate folders).
+    if not parent then
+        table.insert(segments,1,"Workspace")
+        parent=workspace
     end
-    assert(parent,"Parent is not allowed: "..requestedParent)
     for i=2,#segments do
         local child=parent:FindFirstChild(segments[i])
         assert(child and child:IsA("Folder"),"Folder path not found: "..table.concat(segments,".",1,i))
